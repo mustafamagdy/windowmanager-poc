@@ -4,14 +4,15 @@
 
 This proof-of-concept demonstrates a modular window manager that separates
 core layout logic, platform abstractions, and UI orchestration. The project is
-organized around a TypeScript runtime for shared logic and CMake-based native
-modules that will eventually bridge to operating system APIs.
+organized around a TypeScript runtime for shared logic with an Electron main
+process hosting the desktop UI. Native modules can later bridge to operating
+system APIs as the platform controllers mature.
 
 ```
 src/
   core/          Core models for workspaces, layouts, and docking logic.
   platform/      Platform-specific controllers and native shims.
-  ui/            Application bootstrap and orchestration code.
+  ui/            Application bootstrap, Electron host, and renderer orchestration.
 tests/           Unit and integration-style tests for core behaviours.
 ```
 
@@ -52,14 +53,21 @@ and acting as stubs for future native integrations. The controllers will
 ultimately be backed by native modules compiled via CMake targets under
 `src/platform/<platform>/native`.
 
+`src/ui/electronWorkspaceUi.ts` owns the desktop presentation layer. It
+connects the `WorkspaceManager` to Electron, renders workspace summaries inside
+a `BrowserWindow`, and exposes IPC endpoints for activating workspaces, adding
+windows, docking layouts, and querying platform controller windows. Tests
+exercise the UI by providing a mocked Electron host, ensuring the logic remains
+portable across platforms.
+
 ## Roadmap
 
 - **Window Types**: Add support for floating, modal, and notification windows in
 the layout tree, including policy-level rules for stacking and z-order.
 - **Persistence**: Implement adapters for syncing workspace snapshots to disk and
 remote services.
-- **Interactivity**: Build an Electron or native UI shell for manipulating
-workspaces, including drag-and-drop docking.
+- **Interactivity**: Extend the Electron renderer with drag-and-drop docking,
+  richer workspace editing tools, and window previews.
 - **Native Integrations**: Implement platform-specific native modules using OS APIs
 (e.g., Win32, Cocoa, Wayland/X11) to move and resize real windows.
 - **Testing**: Expand the automated test suite with integration harnesses that

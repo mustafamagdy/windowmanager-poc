@@ -87,7 +87,7 @@ describe('Application bootstrap', () => {
     expect(saveMock).toHaveBeenCalledTimes(1);
   });
 
-  it('launches the web UI when requested', async () => {
+  it('launches the desktop UI when requested', async () => {
     loadMock.mockResolvedValue(undefined);
 
     const startMock = jest.fn().mockResolvedValue(undefined);
@@ -97,7 +97,7 @@ describe('Application bootstrap', () => {
 
     const app = new Application('linux', { controller, persistence, uiFactory: factory });
     await app.bootstrap();
-    await app.launchUi({ port: 0 });
+    await app.launchUi({ window: { width: 1024 } });
 
     expect(factory).toHaveBeenCalled();
     expect(startMock).toHaveBeenCalledTimes(1);

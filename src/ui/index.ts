@@ -3,12 +3,8 @@ import { BaseWindowController } from '../platform/common/IWindowController';
 import LinuxController from '../platform/linux/windowController';
 import MacController from '../platform/mac/windowController';
 import WindowsController from '../platform/win/windowController';
-import {
-  WorkspaceUi,
-  WorkspaceUiContext,
-  WorkspaceWebServer,
-  WorkspaceWebServerOptions
-} from './webServer';
+import type { ElectronWorkspaceUiOptions } from './electronWorkspaceUi';
+import { WorkspaceUi, WorkspaceUiContext } from './uiTypes';
 import { WorkspacePersistence } from './workspacePersistence';
 
 function createDefaultWorkspace(): Workspace {
@@ -27,7 +23,7 @@ export interface ApplicationOptions {
 
 export type WorkspaceUiFactory = (
   context: WorkspaceUiContext,
-  options?: WorkspaceWebServerOptions
+  options?: ElectronWorkspaceUiOptions
 ) => WorkspaceUi;
 
 export class Application {
@@ -35,14 +31,13 @@ export class Application {
   private readonly persistence: WorkspacePersistence;
   private workspaceManager?: WorkspaceManager;
   private readonly workspaceCleanup = new Map<string, () => void>();
-  private readonly uiFactory: WorkspaceUiFactory;
+  private readonly uiFactory?: WorkspaceUiFactory;
   private ui?: WorkspaceUi;
 
   constructor(platform: NodeJS.Platform, options: ApplicationOptions = {}) {
     this.controller = options.controller ?? this.createController(platform);
     this.persistence = options.persistence ?? new WorkspacePersistence();
-    this.uiFactory =
-      options.uiFactory ?? ((context, uiOptions) => new WorkspaceWebServer(context, uiOptions));
+    this.uiFactory = options.uiFactory;
   }
 
   get workspace(): Workspace {
@@ -163,7 +158,7 @@ export class Application {
     console.error(`Workspace manager error while ${context}:`, error);
   }
 
-  async launchUi(options?: WorkspaceWebServerOptions): Promise<void> {
+  async launchUi(options?: ElectronWorkspaceUiOptions): Promise<void> {
     const manager = this.workspaceManager;
     if (!manager) {
       throw new Error('Application has not been bootstrapped yet.');
@@ -174,7 +169,16 @@ export class Application {
         controller: this.controller,
         persistence: this.persistence
       };
-      this.ui = this.uiFactory(context, options);
+      if (this.uiFactory) {
+        this.ui = this.uiFactory(context, options);
+      } else {
+        const [{ ElectronWorkspaceUi }, { DefaultElectronHost }] = await Promise.all([
+          import('./electronWorkspaceUi'),
+          import('./electronHost')
+        ]);
+        const host = new DefaultElectronHost();
+        this.ui = new ElectronWorkspaceUi(context, host, options);
+      }
     }
     await this.ui.start();
   }
@@ -191,5 +195,7 @@ if (require.main === module) {
     });
 }
 
-export { WorkspacePersistence, WorkspaceWebServer };
-export type { WorkspaceUiContext, WorkspaceUi, WorkspaceWebServerOptions };
+export { WorkspacePersistence };
+export { ElectronWorkspaceUi } from './electronWorkspaceUi';
+export type { WorkspaceUiContext, WorkspaceUi } from './uiTypes';
+export type { ElectronWorkspaceUiOptions, ElectronHost, ElectronBrowserWindow } from './electronWorkspaceUi';
