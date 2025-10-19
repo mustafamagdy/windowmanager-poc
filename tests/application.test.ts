@@ -1,7 +1,6 @@
 import { DockLayout, Workspace, WorkspaceManager, createLeaf } from '../src/core';
 import { BaseWindowController } from '../src/platform/common/IWindowController';
-import { Application } from '../src/ui';
-import { WorkspaceShell } from '../src/ui/shell';
+import { Application, WorkspaceUi } from '../src/ui';
 import { WorkspacePersistence } from '../src/ui/workspacePersistence';
 
 class TestController extends BaseWindowController {
@@ -88,15 +87,17 @@ describe('Application bootstrap', () => {
     expect(saveMock).toHaveBeenCalledTimes(1);
   });
 
-  it('launches an interactive shell when requested', async () => {
+  it('launches the web UI when requested', async () => {
     loadMock.mockResolvedValue(undefined);
 
     const startMock = jest.fn().mockResolvedValue(undefined);
-    const factory = jest.fn(() => ({ start: startMock } as unknown as WorkspaceShell));
+    const factory = jest.fn(() => ({
+      start: startMock
+    } as unknown as WorkspaceUi));
 
-    const app = new Application('linux', { controller, persistence, shellFactory: factory });
+    const app = new Application('linux', { controller, persistence, uiFactory: factory });
     await app.bootstrap();
-    await app.launchShell({ prompt: 'test> ' });
+    await app.launchUi({ port: 0 });
 
     expect(factory).toHaveBeenCalled();
     expect(startMock).toHaveBeenCalledTimes(1);

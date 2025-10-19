@@ -3,7 +3,12 @@ import { BaseWindowController } from '../platform/common/IWindowController';
 import LinuxController from '../platform/linux/windowController';
 import MacController from '../platform/mac/windowController';
 import WindowsController from '../platform/win/windowController';
-import { WorkspaceShell, WorkspaceShellContext, WorkspaceShellOptions } from './shell';
+import {
+  WorkspaceUi,
+  WorkspaceUiContext,
+  WorkspaceWebServer,
+  WorkspaceWebServerOptions
+} from './webServer';
 import { WorkspacePersistence } from './workspacePersistence';
 
 function createDefaultWorkspace(): Workspace {
@@ -17,27 +22,27 @@ function createDefaultWorkspace(): Workspace {
 export interface ApplicationOptions {
   controller?: BaseWindowController;
   persistence?: WorkspacePersistence;
-  shellFactory?: WorkspaceShellFactory;
+  uiFactory?: WorkspaceUiFactory;
 }
 
-export type WorkspaceShellFactory = (
-  context: WorkspaceShellContext,
-  options?: WorkspaceShellOptions
-) => WorkspaceShell;
+export type WorkspaceUiFactory = (
+  context: WorkspaceUiContext,
+  options?: WorkspaceWebServerOptions
+) => WorkspaceUi;
 
 export class Application {
   private controller: BaseWindowController;
   private readonly persistence: WorkspacePersistence;
   private workspaceManager?: WorkspaceManager;
   private readonly workspaceCleanup = new Map<string, () => void>();
-  private readonly shellFactory: WorkspaceShellFactory;
-  private shell?: WorkspaceShell;
+  private readonly uiFactory: WorkspaceUiFactory;
+  private ui?: WorkspaceUi;
 
   constructor(platform: NodeJS.Platform, options: ApplicationOptions = {}) {
     this.controller = options.controller ?? this.createController(platform);
     this.persistence = options.persistence ?? new WorkspacePersistence();
-    this.shellFactory =
-      options.shellFactory ?? ((context, shellOptions) => new WorkspaceShell(context, shellOptions));
+    this.uiFactory =
+      options.uiFactory ?? ((context, uiOptions) => new WorkspaceWebServer(context, uiOptions));
   }
 
   get workspace(): Workspace {
@@ -158,20 +163,20 @@ export class Application {
     console.error(`Workspace manager error while ${context}:`, error);
   }
 
-  async launchShell(options?: WorkspaceShellOptions): Promise<void> {
+  async launchUi(options?: WorkspaceWebServerOptions): Promise<void> {
     const manager = this.workspaceManager;
     if (!manager) {
       throw new Error('Application has not been bootstrapped yet.');
     }
-    if (!this.shell) {
-      const context: WorkspaceShellContext = {
+    if (!this.ui) {
+      const context: WorkspaceUiContext = {
         manager,
         controller: this.controller,
         persistence: this.persistence
       };
-      this.shell = this.shellFactory(context, options);
+      this.ui = this.uiFactory(context, options);
     }
-    await this.shell.start();
+    await this.ui.start();
   }
 }
 
@@ -179,12 +184,12 @@ if (require.main === module) {
   const app = new Application(process.platform);
   app
     .bootstrap()
-    .then(() => app.launchShell())
+    .then(() => app.launchUi())
     .catch((error) => {
       console.error('Failed to start window manager PoC', error);
       process.exitCode = 1;
     });
 }
 
-export { WorkspacePersistence, WorkspaceShell };
-export type { WorkspaceShellOptions };
+export { WorkspacePersistence, WorkspaceWebServer };
+export type { WorkspaceUiContext, WorkspaceUi, WorkspaceWebServerOptions };
