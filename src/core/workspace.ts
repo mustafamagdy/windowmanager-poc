@@ -2,12 +2,14 @@ import EventEmitter from 'eventemitter3';
 import {
   DockLayout,
   DockNode,
+  DockPlacement,
+  Rect,
   SerializedDockNode,
   createLeaf,
   createSplit
 } from './layout';
-
-export type DockingDirection = 'left' | 'right' | 'top' | 'bottom' | 'tab';
+import { DockingDirection } from './docking';
+import { calculateSplitRatio, inferMagneticIntent, MagneticDockIntent } from './magnet';
 
 export interface WindowState {
   id: string;
@@ -35,6 +37,13 @@ export interface DockRequest {
   targetWindowId: string;
   direction: DockingDirection;
   ratio?: number;
+}
+
+export interface MagneticDockRequest {
+  window: WindowState;
+  surface: Rect;
+  bounds: Rect;
+  threshold?: number;
 }
 
 export class Workspace extends EventEmitter {
@@ -118,8 +127,12 @@ export class Workspace extends EventEmitter {
       throw new Error(`Cannot dock relative to unknown window '${targetWindowId}'.`);
     }
 
-    if (!this.windows.has(window.id)) {
+    const isNewWindow = !this.windows.has(window.id);
+    if (isNewWindow) {
       this.windows.set(window.id, window);
+      if (!this.activeWindowId) {
+        this.activeWindowId = window.id;
+      }
     }
 
     const newRoot = dockLeaf(this.layout.root, targetWindowId, window.id, direction, ratio);
@@ -134,7 +147,54 @@ export class Workspace extends EventEmitter {
       direction
     };
     this.relationships.add(Workspace.serializeRelationshipKey(relationship));
+    if (isNewWindow) {
+      this.emit('window-added', window);
+    }
     this.emit('window-docked', relationship);
+  }
+
+  dockMagnetically(request: MagneticDockRequest): DockingRelationship {
+    const { window, surface, bounds, threshold } = request;
+    const placements = this.layout.computePlacements(surface);
+
+    let bestPlacement: DockPlacementMatch | undefined;
+    for (const placement of placements) {
+      if (placement.id === window.id) {
+        continue;
+      }
+
+      const intent = inferMagneticIntent(bounds, placement.bounds, { threshold });
+      if (!intent) {
+        continue;
+      }
+
+      if (!bestPlacement || comparePlacement(intent, bestPlacement.intent) < 0) {
+        bestPlacement = { placement, intent };
+      }
+    }
+
+    if (!bestPlacement) {
+      throw new Error('Unable to determine docking target using provided bounds.');
+    }
+
+    const ratio = calculateSplitRatio(
+      bestPlacement.intent.direction,
+      bounds,
+      bestPlacement.placement.bounds
+    );
+
+    this.dock({
+      window,
+      targetWindowId: bestPlacement.placement.id,
+      direction: bestPlacement.intent.direction,
+      ratio
+    });
+
+    return {
+      sourceWindowId: window.id,
+      targetWindowId: bestPlacement.placement.id,
+      direction: bestPlacement.intent.direction
+    };
   }
 
   listRelationships(): DockingRelationship[] {
@@ -192,6 +252,18 @@ export class Workspace extends EventEmitter {
     ];
     return { sourceWindowId, direction, targetWindowId };
   }
+}
+
+interface DockPlacementMatch {
+  placement: DockPlacement;
+  intent: MagneticDockIntent;
+}
+
+function comparePlacement(a: MagneticDockIntent, b: MagneticDockIntent): number {
+  if (a.distance !== b.distance) {
+    return a.distance - b.distance;
+  }
+  return b.overlap - a.overlap;
 }
 
 function dockLeaf(
