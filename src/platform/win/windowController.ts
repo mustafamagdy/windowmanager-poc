@@ -1,6 +1,6 @@
-import { BaseWindowController } from '../common/IWindowController';
+import VirtualWindowController from '../common/virtualWindowController';
 
-export class WindowsWindowController extends BaseWindowController {
+export class WindowsWindowController extends VirtualWindowController {
   readonly platform = 'win32';
 
   async initialize(): Promise<void> {
