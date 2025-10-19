@@ -4,7 +4,7 @@
   "description": "Proof-of-concept window manager with multi-platform abstractions.",
   "private": true,
   "scripts": {
-    "build": "tsc -p tsconfig.json",
+    "build": "tsc -p tsconfig.build.json",
     "test": "jest",
     "lint": "tsc --noEmit",
     "start": "node dist/ui/index.js"
