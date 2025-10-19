@@ -3,6 +3,7 @@ import { BaseWindowController } from '../platform/common/IWindowController';
 import LinuxController from '../platform/linux/windowController';
 import MacController from '../platform/mac/windowController';
 import WindowsController from '../platform/win/windowController';
+import { WorkspacePersistence } from './workspacePersistence';
 
 function createDefaultWorkspace(): Workspace {
   const layout = new DockLayout(createLeaf('welcome'));
@@ -12,22 +13,36 @@ function createDefaultWorkspace(): Workspace {
   return workspace;
 }
 
+export interface ApplicationOptions {
+  controller?: BaseWindowController;
+  persistence?: WorkspacePersistence;
+}
+
 export class Application {
   private controller: BaseWindowController;
-  readonly workspaceManager: WorkspaceManager;
+  private readonly persistence: WorkspacePersistence;
+  private workspaceManager?: WorkspaceManager;
+  private readonly workspaceCleanup = new Map<string, () => void>();
 
-  constructor(platform: NodeJS.Platform) {
-    this.controller = this.createController(platform);
-    const workspace = createDefaultWorkspace();
-    this.workspaceManager = new WorkspaceManager([workspace], workspace.id);
+  constructor(platform: NodeJS.Platform, options: ApplicationOptions = {}) {
+    this.controller = options.controller ?? this.createController(platform);
+    this.persistence = options.persistence ?? new WorkspacePersistence();
   }
 
   get workspace(): Workspace {
-    const workspace = this.workspaceManager.getActiveWorkspace();
+    const manager = this.getWorkspaceManager();
+    const workspace = manager.getActiveWorkspace();
     if (!workspace) {
       throw new Error('No active workspace configured.');
     }
     return workspace;
+  }
+
+  getWorkspaceManager(): WorkspaceManager {
+    if (!this.workspaceManager) {
+      throw new Error('Application has not been bootstrapped yet.');
+    }
+    return this.workspaceManager;
   }
 
   private createController(platform: NodeJS.Platform): BaseWindowController {
@@ -43,8 +58,93 @@ export class Application {
 
   async bootstrap(): Promise<void> {
     await this.controller.initialize();
-    const snapshot = this.workspace.serialize();
-    await this.controller.persistWorkspace(snapshot);
+    const manager = await this.loadWorkspaceManager();
+    this.registerWorkspaceManager(manager);
+    const activeWorkspace = manager.getActiveWorkspace();
+    if (activeWorkspace) {
+      await this.controller.persistWorkspace(activeWorkspace.serialize());
+    }
+    await this.persistence.save(manager.serialize());
+  }
+
+  private async loadWorkspaceManager(): Promise<WorkspaceManager> {
+    const snapshot = await this.persistence.load();
+    if (snapshot) {
+      return WorkspaceManager.deserialize(snapshot);
+    }
+
+    const workspace = createDefaultWorkspace();
+    return new WorkspaceManager([workspace], workspace.id);
+  }
+
+  private registerWorkspaceManager(manager: WorkspaceManager): void {
+    this.workspaceManager = manager;
+    manager.getWorkspaces().forEach((workspace) => this.registerWorkspace(workspace));
+
+    manager.on('workspace-added', (workspace) => {
+      this.registerWorkspace(workspace);
+      this.persistState();
+    });
+
+    manager.on('workspace-removed', (workspaceId) => {
+      this.unregisterWorkspace(workspaceId);
+      this.persistState();
+    });
+
+    manager.on('active-workspace-changed', () => {
+      const activeWorkspace = manager.getActiveWorkspace();
+      if (activeWorkspace) {
+        void this.controller
+          .persistWorkspace(activeWorkspace.serialize())
+          .catch((error) => this.reportError('persisting active workspace', error));
+      }
+      this.persistState();
+    });
+  }
+
+  private registerWorkspace(workspace: Workspace): void {
+    const listener = () => {
+      if (this.getWorkspaceManager().getActiveWorkspace()?.id === workspace.id) {
+        void this.controller
+          .persistWorkspace(workspace.serialize())
+          .catch((error) => this.reportError('persisting active workspace', error));
+      }
+      this.persistState();
+    };
+
+    workspace.on('window-added', listener);
+    workspace.on('window-removed', listener);
+    workspace.on('window-docked', listener);
+    workspace.on('active-window-changed', listener);
+
+    this.workspaceCleanup.set(workspace.id, () => {
+      workspace.off('window-added', listener);
+      workspace.off('window-removed', listener);
+      workspace.off('window-docked', listener);
+      workspace.off('active-window-changed', listener);
+    });
+  }
+
+  private unregisterWorkspace(workspaceId: string): void {
+    const cleanup = this.workspaceCleanup.get(workspaceId);
+    if (cleanup) {
+      cleanup();
+      this.workspaceCleanup.delete(workspaceId);
+    }
+  }
+
+  private persistState(): void {
+    const manager = this.workspaceManager;
+    if (!manager) {
+      return;
+    }
+    void this.persistence
+      .save(manager.serialize())
+      .catch((error) => this.reportError('saving workspace state', error));
+  }
+
+  private reportError(context: string, error: unknown): void {
+    console.error(`Workspace manager error while ${context}:`, error);
   }
 }
 
@@ -55,3 +155,5 @@ if (require.main === module) {
     process.exitCode = 1;
   });
 }
+
+export { WorkspacePersistence };
