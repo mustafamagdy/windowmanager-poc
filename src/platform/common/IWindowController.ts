@@ -1,4 +1,5 @@
-import { DockingDirection, WorkspaceSnapshot } from '../../core/workspace';
+import { DockingDirection } from '../../core/docking';
+import { WorkspaceSnapshot } from '../../core/workspace';
 
 export interface WindowBounds {
   x: number;

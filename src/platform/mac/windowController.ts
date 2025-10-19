@@ -1,6 +1,6 @@
-import { BaseWindowController } from '../common/IWindowController';
+import VirtualWindowController from '../common/virtualWindowController';
 
-export class MacWindowController extends BaseWindowController {
+export class MacWindowController extends VirtualWindowController {
   readonly platform = 'darwin';
 
   async initialize(): Promise<void> {
